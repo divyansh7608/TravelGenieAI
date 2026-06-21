@@ -16,9 +16,9 @@ export default function DownloadButton({ itinerary, destination }: Props) {
   return (
     <button
       onClick={handleClick}
-      className="w-full px-6 py-3 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+      className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--text-primary)] text-sm font-medium hover:bg-[var(--bg-secondary)] transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
     >
-      Download as Word
+      ⬇️ Download Word
     </button>
   )
 }

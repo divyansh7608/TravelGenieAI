@@ -1,9 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Trip } from '@/types'
 import type { ItineraryShape } from '@/lib/agent/orchestrator'
 import DownloadButton from './DownloadButton'
+
+export const metadata: Metadata = { title: 'Trip Details - TravelGenieAI' }
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -13,14 +16,16 @@ function BudgetBar({ spent, total }: { spent: number; total: number }) {
   const pct = Math.min(100, Math.round((spent / total) * 100))
   const over = spent > total
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <div className="flex justify-between text-sm font-medium">
-        <span className={over ? 'text-red-600' : 'text-gray-700'}>
+        <span className={over ? 'text-red-500' : 'text-[var(--text-primary)]'}>
           ${spent.toLocaleString()} spent
         </span>
-        <span className="text-gray-400">${total.toLocaleString()} budget</span>
+        <span className="text-[var(--text-secondary)]">
+          ${total.toLocaleString()} budget · {pct}%
+        </span>
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-400' : 'bg-blue-500'}`}
           style={{ width: `${pct}%` }}
@@ -50,84 +55,99 @@ export default async function TripPage({ params }: PageProps) {
   const itinerary = trip.itinerary as unknown as ItineraryShape
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Nav */}
-      <header className="border-b border-gray-100 px-6 py-4 sticky top-0 bg-white z-10">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <span className="text-xl font-bold text-gray-900">TravelGenieAI</span>
-          <Link
-            href="/dashboard"
-            className="text-sm text-gray-500 hover:text-gray-800 transition-colors"
-          >
-            ← Dashboard
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[var(--bg)] transition-colors duration-200">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-8">
 
-      <div className="max-w-3xl mx-auto px-6 py-10 space-y-8">
+        {/* Back link */}
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-200"
+        >
+          ← Back to Dashboard
+        </Link>
+
         {/* Header */}
-        <div className="space-y-4">
-          <h1 className="text-4xl font-extrabold text-gray-900 leading-tight">{itinerary.title}</h1>
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-[var(--text-primary)] leading-tight">
+              {itinerary.title}
+            </h1>
+            <DownloadButton itinerary={itinerary} destination={trip.destination} />
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            <span className="px-3 py-1 bg-blue-50 text-blue-700 text-sm font-medium rounded-full border border-blue-200">
+            <span className="px-3 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-sm font-medium rounded-full border border-green-200 dark:border-green-800">
               💰 ${itinerary.total_cost_usd.toLocaleString()} total
             </span>
-            <span className="px-3 py-1 bg-purple-50 text-purple-700 text-sm font-medium rounded-full border border-purple-200">
+            <span className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-full border border-blue-200 dark:border-blue-800">
               📅 {itinerary.days.length} days
             </span>
-            <span className="px-3 py-1 bg-green-50 text-green-700 text-sm font-medium rounded-full border border-green-200">
+            <span className="px-3 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-full border border-purple-200 dark:border-purple-800">
               📍 {trip.destination}
             </span>
-            <span className="px-3 py-1 bg-amber-50 text-amber-700 text-sm font-medium rounded-full border border-amber-200">
-              ⭐ Best: {itinerary.best_time_to_visit}
-            </span>
           </div>
+
+          {/* Best time banner */}
+          {itinerary.best_time_to_visit && (
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+              ⭐ <span className="font-medium">Best time to visit:</span> {itinerary.best_time_to_visit}
+            </div>
+          )}
+
           <BudgetBar spent={itinerary.total_cost_usd} total={trip.budget_usd} />
         </div>
 
         {/* Days */}
         {itinerary.days.map((day) => (
-          <div key={day.day} className="border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-            <div className="bg-gray-900 text-white px-6 py-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-widest mb-0.5">Day {day.day}</p>
-                <h2 className="text-xl font-bold">{day.title}</h2>
-                <p className="text-sm text-gray-300 mt-0.5">{day.date}</p>
+          <div key={day.day} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-sm">
+            {/* Day header */}
+            <div className="px-3 sm:px-5 py-4 flex items-start justify-between gap-3 border-b border-[var(--border)]">
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
+                    {day.day}
+                  </span>
+                  <h2 className="text-sm sm:text-base font-bold text-[var(--text-primary)] truncate">{day.title}</h2>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] ml-8 sm:ml-9 line-clamp-1">{day.date} · {day.weather}</p>
               </div>
-              <div className="text-right">
-                <span className="inline-block px-3 py-1 bg-white/10 text-white text-sm rounded-full border border-white/20">
-                  ${day.budget_usd}
-                </span>
-                <p className="text-xs text-gray-400 mt-1">{day.weather}</p>
-              </div>
+              <span className="shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
+                ${day.budget_usd}
+              </span>
             </div>
-            <div className="divide-y divide-gray-50">
+
+            {/* Slots */}
+            <div className="divide-y divide-[var(--border)]">
               {day.slots.map((slot, i) => (
-                <div key={i} className="px-6 py-4 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-widest text-gray-400 w-20">
+                <div key={i} className="px-3 sm:px-5 py-3 space-y-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 min-w-0">
+                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] shrink-0">
                         {slot.time}
                       </span>
-                      <span className="font-medium text-gray-900">{slot.activity}</span>
+                      <span className="font-medium text-[var(--text-primary)] text-sm leading-snug">
+                        {slot.activity}
+                      </span>
                     </div>
-                    <span className="text-sm text-gray-500 font-medium shrink-0 ml-4">
+                    <span className="text-xs sm:text-sm text-green-600 dark:text-green-400 font-semibold shrink-0 mt-0.5">
                       ${slot.cost_usd}
                     </span>
                   </div>
                   {slot.tip && (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
+                    <p className="text-xs text-[var(--text-secondary)] italic pl-3 border-l-2 border-blue-300 dark:border-blue-700">
                       💡 {slot.tip}
                     </p>
                   )}
                 </div>
               ))}
-              <div className="px-6 py-4 bg-slate-50 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <span>🏨</span>
-                  <span className="font-medium text-sm">{day.accommodation.name}</span>
+
+              {/* Accommodation */}
+              <div className="px-3 sm:px-5 py-3.5 flex items-center justify-between bg-[var(--bg-secondary)] gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="shrink-0">🏨</span>
+                  <span className="font-medium text-sm text-[var(--text-primary)] truncate">{day.accommodation.name}</span>
                 </div>
-                <span className="text-sm text-slate-500">${day.accommodation.cost_usd}/night</span>
+                <span className="text-sm text-[var(--text-secondary)] shrink-0">${day.accommodation.cost_usd}/night</span>
               </div>
             </div>
           </div>
@@ -135,12 +155,12 @@ export default async function TripPage({ params }: PageProps) {
 
         {/* Packing tips */}
         {itinerary.packing_tips.length > 0 && (
-          <div className="border border-gray-100 rounded-2xl p-6 space-y-3">
-            <h3 className="font-bold text-gray-900">🎒 Packing Tips</h3>
-            <ul className="space-y-2">
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 space-y-3">
+            <h3 className="font-bold text-amber-900 dark:text-amber-200">🎒 Packing Tips</h3>
+            <ul className="space-y-1.5">
               {itinerary.packing_tips.map((tip, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                  <span className="text-gray-300 mt-0.5">•</span>
+                <li key={i} className="flex items-start gap-2 text-sm text-amber-800 dark:text-amber-300">
+                  <span className="text-amber-400 mt-0.5 shrink-0">•</span>
                   <span>{tip}</span>
                 </li>
               ))}
@@ -149,19 +169,16 @@ export default async function TripPage({ params }: PageProps) {
         )}
 
         {/* Actions */}
-        <div className="space-y-3 pt-2">
-          <DownloadButton itinerary={itinerary} destination={trip.destination} />
-
+        <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <Link
             href={`/plan?trip=${trip.id}`}
-            className="block w-full text-center px-6 py-3 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+            className="flex-1 text-center px-6 py-3 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--text-primary)] font-medium hover:bg-[var(--bg-secondary)] transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             ✏️ Refine this trip
           </Link>
-
           <Link
             href="/dashboard"
-            className="block w-full text-center px-6 py-3 rounded-lg bg-gray-50 text-gray-500 font-medium hover:bg-gray-100 transition-colors"
+            className="flex-1 text-center px-6 py-3 rounded-xl bg-[var(--bg-secondary)] text-[var(--text-secondary)] font-medium hover:bg-[var(--border)] transition-colors duration-200 text-sm"
           >
             ← Back to Dashboard
           </Link>

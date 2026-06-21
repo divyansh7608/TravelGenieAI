@@ -5,6 +5,23 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { ItineraryShape } from '@/lib/agent/orchestrator'
 import type { GenerateRequest } from '@/types'
 
+// ─── Rate limiter ────────────────────────────────────────────────────────────
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
+const RATE_LIMIT = 20
+const WINDOW_MS = 60 * 60 * 1000 // 1 hour
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + WINDOW_MS })
+    return true
+  }
+  if (entry.count >= RATE_LIMIT) return false
+  entry.count++
+  return true
+}
+
 function cleanJson(text: string): string {
   let cleaned = text.trim()
   cleaned = cleaned.replace(/^```json/i, '')
@@ -25,6 +42,14 @@ interface RefineBody {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      { status: 429 }
+    )
+  }
+
   let body: Partial<RefineBody>
 
   try {
