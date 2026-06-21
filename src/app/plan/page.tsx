@@ -1,7 +1,12 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { GenerateRequest, ItineraryDay } from '@/types'
+import type { ItineraryShape } from '@/lib/agent/orchestrator'
+import { createClient } from '@/lib/supabase/client'
+import { saveTrip, updateTripItinerary } from '@/lib/supabase/trips'
+import { downloadItineraryAsDocx } from '@/lib/export/docx'
+import { signInWithGoogle } from '@/app/actions/auth'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +16,11 @@ interface ItineraryResult {
   total_cost_usd: number
   packing_tips: string[]
   best_time_to_visit: string
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
 }
 
 interface StepConfig {
@@ -28,6 +38,13 @@ const STEPS: StepConfig[] = [
 const INTERESTS = [
   'Adventure', 'Culture', 'Food', 'Nature',
   'Shopping', 'Relaxation', 'History', 'Nightlife',
+]
+
+const REFINE_CHIPS = [
+  'Make it cheaper',
+  'Add more food',
+  'Make it relaxed',
+  'Add a day hike',
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -122,17 +139,40 @@ function ItineraryView({
   itinerary,
   budget,
   onReset,
+  request,
+  savedTripId,
+  isSignedIn,
+  onRefine,
+  chatHistory,
+  isRefining,
 }: {
   itinerary: ItineraryResult
   budget: number
   onReset: () => void
+  request: GenerateRequest
+  savedTripId: string | null
+  isSignedIn: boolean
+  onRefine: (message: string) => Promise<void>
+  chatHistory: ChatMessage[]
+  isRefining: boolean
 }) {
   const [copied, setCopied] = useState(false)
+  const [refineInput, setRefineInput] = useState('')
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(toPlainText(itinerary))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleDownload = async () => {
+    await downloadItineraryAsDocx(itinerary as unknown as ItineraryShape, request.destination)
+  }
+
+  const handleSendRefine = async (msg: string) => {
+    if (!msg.trim()) return
+    setRefineInput('')
+    await onRefine(msg.trim())
   }
 
   return (
@@ -156,9 +196,31 @@ function ItineraryView({
           <span className="px-3 py-1 bg-green-50 text-green-700 text-sm font-medium rounded-full border border-green-200">
             ⭐ Best: {itinerary.best_time_to_visit}
           </span>
+          {savedTripId && (
+            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-sm font-medium rounded-full border border-emerald-200">
+              ✓ Saved
+            </span>
+          )}
         </div>
         <BudgetBar spent={itinerary.total_cost_usd} total={budget} />
       </div>
+
+      {/* Guest upsell banner */}
+      {!isSignedIn && (
+        <div className="flex items-center justify-between gap-4 bg-blue-50 border border-blue-100 rounded-xl px-5 py-4">
+          <p className="text-sm text-blue-800">
+            Sign in with Google to save this trip and access it anytime.
+          </p>
+          <form action={signInWithGoogle}>
+            <button
+              type="submit"
+              className="shrink-0 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Sign in
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Days */}
       {itinerary.days.map((day) => (
@@ -191,7 +253,7 @@ function ItineraryView({
                   </span>
                 </div>
                 {slot.tip && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 ml-22">
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5">
                     💡 {slot.tip}
                   </p>
                 )}
@@ -223,27 +285,98 @@ function ItineraryView({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="space-y-4 pt-4">
+      {/* Export buttons */}
+      <div className="flex gap-3 pt-2">
         <button
           onClick={handleCopy}
-          className="w-full px-6 py-3 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+          className="flex-1 px-4 py-3 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 transition-colors text-sm"
         >
           {copied ? '✓ Copied!' : 'Copy as text'}
         </button>
+        <button
+          onClick={handleDownload}
+          className="flex-1 px-4 py-3 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium hover:bg-gray-50 transition-colors text-sm"
+        >
+          Download as Word
+        </button>
+      </div>
 
-        <div className="border border-dashed border-gray-200 rounded-xl p-4">
-          <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-widest">
-            Refine this trip — Phase 5
-          </p>
+      {/* ── Refinement chat ───────────────────────────────────────────────── */}
+      <div className="border border-gray-100 rounded-2xl p-5 space-y-4">
+        <h3 className="font-bold text-gray-900">✏️ Refine this trip</h3>
+
+        {/* Chat history */}
+        {chatHistory.length > 0 && (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {chatHistory.map((msg, i) => (
+              <div
+                key={i}
+                className={`text-sm px-3 py-2 rounded-lg ${
+                  msg.role === 'user'
+                    ? 'bg-gray-100 text-gray-800 self-end'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-100'
+                }`}
+              >
+                {msg.role === 'user' ? `You: ${msg.content}` : msg.content}
+              </div>
+            ))}
+            {isRefining && (
+              <div className="text-sm text-gray-400 italic px-3 py-2">
+                Refining your trip…
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Suggestion chips */}
+        <div className="flex flex-wrap gap-2">
+          {REFINE_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              disabled={isRefining}
+              onClick={() => handleSendRefine(chip)}
+              className="px-3 py-1.5 rounded-full text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+
+        {/* Input + send */}
+        <div className="flex gap-2">
           <input
             type="text"
-            disabled
-            placeholder="e.g. Remove the museum, add more food experiences…"
-            className="w-full px-4 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-400 cursor-not-allowed"
+            value={refineInput}
+            onChange={(e) => setRefineInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSendRefine(refineInput) }}
+            disabled={isRefining}
+            placeholder="Ask anything — e.g. make day 2 more relaxed"
+            className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition disabled:opacity-40"
           />
+          <button
+            onClick={() => handleSendRefine(refineInput)}
+            disabled={isRefining || !refineInput.trim()}
+            className="px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Send
+          </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+function Toast({ message, show }: { message: string; show: boolean }) {
+  return (
+    <div
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg transition-all duration-300 z-50 ${
+        show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
+      }`}
+    >
+      {message}
     </div>
   )
 }
@@ -251,6 +384,7 @@ function ItineraryView({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PlanPage() {
+  const [description, setDescription] = useState('')
   const [destination, setDestination] = useState('')
   const [duration, setDuration] = useState<number>(5)
   const [budget, setBudget] = useState<number>(1500)
@@ -262,9 +396,36 @@ export default function PlanPage() {
   const [phase, setPhase] = useState<'form' | 'loading' | 'result' | 'error'>('form')
   const [currentStep, setCurrentStep] = useState('')
   const [itinerary, setItinerary] = useState<ItineraryResult | null>(null)
+  const [request, setRequest] = useState<GenerateRequest | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
 
+  // Auth + save state
+  const [isSignedIn, setIsSignedIn] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [savedTripId, setSavedTripId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; show: boolean }>({ message: '', show: false })
+
+  // Refinement state
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
+  const [isRefining, setIsRefining] = useState(false)
+
   const abortRef = useRef<AbortController | null>(null)
+
+  // Check auth on mount
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setIsSignedIn(true)
+        setUserId(session.user.id)
+      }
+    })
+  }, [])
+
+  const showToast = (message: string) => {
+    setToast({ message, show: true })
+    setTimeout(() => setToast((t) => ({ ...t, show: false })), 3000)
+  }
 
   const toggleInterest = (tag: string) => {
     setInterests((prev) =>
@@ -275,15 +436,20 @@ export default function PlanPage() {
   const handleGenerate = async () => {
     if (!destination.trim()) return
 
-    const request: GenerateRequest = {
+    const req: GenerateRequest = {
       destination: destination.trim(),
       duration_days: duration,
       budget_usd: budget,
       interests,
       dates: dates || undefined,
       group_size: groupSize || undefined,
-      extra_notes: extraNotes || undefined,
+      extra_notes: description
+        ? description + (extraNotes ? '. ' + extraNotes : '')
+        : extraNotes || undefined,
     }
+    setRequest(req)
+    setSavedTripId(null)
+    setChatHistory([])
 
     abortRef.current = new AbortController()
     setPhase('loading')
@@ -293,7 +459,7 @@ export default function PlanPage() {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
+        body: JSON.stringify(req),
         signal: abortRef.current.signal,
       })
 
@@ -330,8 +496,23 @@ export default function PlanPage() {
             const parsed = JSON.parse(data) as ItineraryResult
             setItinerary(parsed)
             setPhase('result')
+
+            // Auto-save for signed-in users
+            if (isSignedIn && userId) {
+              try {
+                const supabase = createClient()
+                const { data: { session } } = await supabase.auth.getSession()
+                if (session?.user) {
+                  const tripId = await saveTrip(userId, parsed as unknown as ItineraryShape, req)
+                  setSavedTripId(tripId)
+                  showToast('Trip saved')
+                }
+              } catch (saveErr) {
+                console.error('Auto-save failed:', saveErr)
+              }
+            }
           } else if (event === 'error') {
-            setErrorMessage('We ran into an issue generating your itinerary. Please try again.')
+            setErrorMessage(data)
             setPhase('error')
           }
         }
@@ -340,6 +521,43 @@ export default function PlanPage() {
       if (err instanceof Error && err.name === 'AbortError') return
       setErrorMessage('Connection lost. Please check your network and try again.')
       setPhase('error')
+    }
+  }
+
+  const handleRefine = async (message: string) => {
+    if (!itinerary || !request) return
+    setIsRefining(true)
+    setChatHistory((h) => [...h, { role: 'user', content: message }])
+
+    try {
+      const res = await fetch('/api/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itinerary, request, message }),
+      })
+
+      if (!res.ok) throw new Error('Refinement failed')
+
+      const refined = (await res.json()) as ItineraryResult
+      setItinerary(refined)
+      setChatHistory((h) => [...h, { role: 'assistant', content: 'Trip updated ✓' }])
+
+      // Update saved trip if signed in
+      if (isSignedIn && userId && savedTripId) {
+        try {
+          await updateTripItinerary(savedTripId, userId, refined as unknown as ItineraryShape)
+        } catch (updateErr) {
+          console.error('Update trip failed:', updateErr)
+        }
+      }
+    } catch (err) {
+      console.error('Refine error:', err)
+      setChatHistory((h) => [
+        ...h,
+        { role: 'assistant', content: 'Sorry, refinement failed. Please try again.' },
+      ])
+    } finally {
+      setIsRefining(false)
     }
   }
 
@@ -354,7 +572,7 @@ export default function PlanPage() {
     )
   }
 
-  if (phase === 'result' && itinerary) {
+  if (phase === 'result' && itinerary && request) {
     return (
       <div className="min-h-screen bg-white">
         <div className="border-b border-gray-100 px-6 py-4">
@@ -364,7 +582,14 @@ export default function PlanPage() {
           itinerary={itinerary}
           budget={budget}
           onReset={() => { setPhase('form'); setItinerary(null) }}
+          request={request}
+          savedTripId={savedTripId}
+          isSignedIn={isSignedIn}
+          onRefine={handleRefine}
+          chatHistory={chatHistory}
+          isRefining={isRefining}
         />
+        <Toast message={toast.message} show={toast.show} />
       </div>
     )
   }
@@ -408,10 +633,11 @@ export default function PlanPage() {
           <textarea
             id="natural-input"
             rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             placeholder="e.g. 5 days in Kyoto, October, $1500 budget, love temples and local food"
             className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 resize-none transition"
             onBlur={(e) => {
-              // Attempt to auto-fill destination from description
               const text = e.target.value
               const inMatch = text.match(/\bin\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/)?.[1]
               if (inMatch && !destination) setDestination(inMatch)

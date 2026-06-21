@@ -32,7 +32,7 @@ function getDateInDays(offsetDays: number): string {
   return d.toISOString().split('T')[0]
 }
 
-interface ItineraryShape {
+export interface ItineraryShape {
   title: string
   days: {
     day: number

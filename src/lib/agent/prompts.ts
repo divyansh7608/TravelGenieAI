@@ -10,7 +10,7 @@ The user wants to plan a trip with these details:
 - Interests: ${request.interests.length > 0 ? request.interests.join(', ') : 'general sightseeing'}
 ${request.dates ? `- Travel dates: ${request.dates}` : ''}
 ${request.group_size ? `- Group size: ${request.group_size}` : ''}
-${request.extra_notes ? `- Additional notes: ${request.extra_notes}` : ''}
+${request.extra_notes ? `- Important user request (highest priority): ${request.extra_notes}` : ''}
 
 Your task is to produce a detailed, realistic, day-by-day travel itinerary.
 
@@ -24,6 +24,7 @@ Rules you MUST follow:
 7. Activities must match the user's interests.
 8. Use the travel dates to make the itinerary seasonal and contextual where provided.
 9. Include a trip title that captures the spirit of the journey.
+10. If the user's important request mentions a specific destination or duration, it MUST override the destination and duration_days fields provided.
 
 Return ONLY a valid JSON object with this EXACT structure. No markdown fences, no explanation, no comments — raw JSON only:
 
