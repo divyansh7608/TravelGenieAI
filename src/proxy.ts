@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/trip')
 
   if (isProtected && !user) {
-    return NextResponse.redirect(new URL('/', request.url))
+    return NextResponse.redirect(new URL('/auth', request.url))
   }
 
   return supabaseResponse

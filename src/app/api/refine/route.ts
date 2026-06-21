@@ -35,6 +35,11 @@ export async function POST(req: NextRequest) {
 
   const { itinerary, request, message } = body
 
+  console.log('Refine request received:', {
+    destination: request?.destination,
+    message,
+  })
+
   if (!itinerary || !request || !message) {
     return NextResponse.json(
       { error: 'Missing required fields: itinerary, request, message' },
@@ -44,9 +49,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' })
 
-    const prompt = `You are a travel planner refining an existing itinerary based on user feedback.
+    const prompt = `You are a travel planner refining an existing itinerary.
 
 Current itinerary:
 ${JSON.stringify(itinerary)}
@@ -55,13 +60,16 @@ User request:
 ${message}
 
 Original trip:
-- Destination: ${request.destination}
-- Duration: ${request.duration_days} days
-- Budget: $${request.budget_usd} USD
+Destination: ${request.destination}
+Duration: ${request.duration_days}
+Budget: ${request.budget_usd}
 
 Apply the requested changes while preserving the rest of the itinerary.
-Keep total cost within budget.
-Return ONLY raw JSON with the exact same structure. No markdown. No explanation.`
+
+Return ONLY valid JSON.
+
+No markdown.
+No explanations.`
 
     const result = await model.generateContent([{ text: prompt }])
     const rawText = result.response.text()
@@ -70,7 +78,7 @@ Return ONLY raw JSON with the exact same structure. No markdown. No explanation.
     return NextResponse.json(refined)
   } catch (err) {
     console.error('Refine error:', err)
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    const errMessage = err instanceof Error ? err.message : 'Unknown error'
+    return NextResponse.json({ error: errMessage }, { status: 500 })
   }
 }

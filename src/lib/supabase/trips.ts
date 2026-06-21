@@ -11,6 +11,23 @@ export async function saveTrip(
   const supabase = createClient()
   const now = new Date().toISOString()
 
+  // Ensure profile exists to prevent foreign key errors ('trips.user_id' -> 'profiles.id')
+  // This handles users signed in via Google OAuth or whose profile creation failed during sign-up
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user && user.id === userId) {
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      id: user.id,
+      email: user.email,
+      full_name: user.user_metadata?.full_name || '',
+      avatar_url: user.user_metadata?.avatar_url || ''
+    }, { onConflict: 'id' })
+    
+    if (profileError) {
+      console.error('Lazy profile creation failed:', profileError)
+      throw new Error(`Could not create profile: ${profileError.message}. Please check database RLS policies.`)
+    }
+  }
+
   const { data, error } = await supabase
     .from('trips')
     .insert({

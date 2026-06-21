@@ -372,11 +372,11 @@ function ItineraryView({
 function Toast({ message, show }: { message: string; show: boolean }) {
   return (
     <div
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg transition-all duration-300 z-50 ${
+      className={`fixed bottom-6 right-6 px-5 py-3 bg-emerald-600 text-white text-sm font-medium rounded-xl shadow-lg transition-all duration-300 z-50 ${
         show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
       }`}
     >
-      {message}
+      ✓ {message}
     </div>
   )
 }
@@ -497,19 +497,17 @@ export default function PlanPage() {
             setItinerary(parsed)
             setPhase('result')
 
-            // Auto-save for signed-in users
-            if (isSignedIn && userId) {
-              try {
-                const supabase = createClient()
-                const { data: { session } } = await supabase.auth.getSession()
-                if (session?.user) {
-                  const tripId = await saveTrip(userId, parsed as unknown as ItineraryShape, req)
-                  setSavedTripId(tripId)
-                  showToast('Trip saved')
-                }
-              } catch (saveErr) {
-                console.error('Auto-save failed:', saveErr)
+            // Auto-save for signed-in users — read session fresh
+            try {
+              const supabase = createClient()
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                const tripId = await saveTrip(user.id, parsed as unknown as ItineraryShape, req)
+                setSavedTripId(tripId)
+                showToast('Trip saved to your dashboard')
               }
+            } catch (saveErr) {
+              console.error('Trip save failed:', saveErr)
             }
           } else if (event === 'error') {
             setErrorMessage(data)
@@ -525,7 +523,7 @@ export default function PlanPage() {
   }
 
   const handleRefine = async (message: string) => {
-    if (!itinerary || !request) return
+    if (!itinerary || !request || !message.trim()) return
     setIsRefining(true)
     setChatHistory((h) => [...h, { role: 'user', content: message }])
 
@@ -542,10 +540,14 @@ export default function PlanPage() {
       setItinerary(refined)
       setChatHistory((h) => [...h, { role: 'assistant', content: 'Trip updated ✓' }])
 
-      // Update saved trip if signed in
-      if (isSignedIn && userId && savedTripId) {
+      // Keep saved trip in sync — read session fresh
+      if (savedTripId) {
         try {
-          await updateTripItinerary(savedTripId, userId, refined as unknown as ItineraryShape)
+          const supabase = createClient()
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            await updateTripItinerary(savedTripId, session.user.id, refined as unknown as ItineraryShape)
+          }
         } catch (updateErr) {
           console.error('Update trip failed:', updateErr)
         }
@@ -554,7 +556,7 @@ export default function PlanPage() {
       console.error('Refine error:', err)
       setChatHistory((h) => [
         ...h,
-        { role: 'assistant', content: 'Sorry, refinement failed. Please try again.' },
+        { role: 'assistant', content: 'Refinement failed, try again.' },
       ])
     } finally {
       setIsRefining(false)
@@ -565,7 +567,6 @@ export default function PlanPage() {
     return (
       <div className="min-h-screen bg-white px-6">
         <div className="max-w-3xl mx-auto pt-10">
-          <div className="text-xl font-bold text-gray-900 mb-8">TravelGenieAI</div>
           <ProgressScreen currentStep={currentStep} />
         </div>
       </div>
@@ -575,9 +576,6 @@ export default function PlanPage() {
   if (phase === 'result' && itinerary && request) {
     return (
       <div className="min-h-screen bg-white">
-        <div className="border-b border-gray-100 px-6 py-4">
-          <span className="text-xl font-bold text-gray-900">TravelGenieAI</span>
-        </div>
         <ItineraryView
           itinerary={itinerary}
           budget={budget}

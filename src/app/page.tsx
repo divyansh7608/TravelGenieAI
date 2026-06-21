@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { GoogleSignInButton } from '@/app/components/GoogleSignInButton'
 
 interface HomePageProps {
   searchParams: Promise<{ error?: string }>
@@ -29,7 +28,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         {/* Actions */}
         <div className="space-y-3">
-          <GoogleSignInButton />
+          <Link
+            href="/auth"
+            className="block w-full px-6 py-3 rounded-lg border border-transparent bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors duration-200"
+          >
+            Get Started
+          </Link>
 
           <Link
             href="/plan"
